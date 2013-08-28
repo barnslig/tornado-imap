@@ -119,6 +119,8 @@ class AsyncIMAPClient:
 				callback(1, "SELECT failed.")
 		self._cmd("SELECT {0}".format(mailbox), _callback)
 
+	# SEARCH mailbox for matching messages. Look for criterias at
+	# https://tools.ietf.org/html/rfc3501#section-6.4.4
 	def search(self, criteria, callback=None):
 		if not callback:
 			callback = self.callback
@@ -144,6 +146,9 @@ class AsyncIMAPClient:
 		self.waiters["^\* SEARCH"] = _callback_results
 		self._cmd("SEARCH {0}".format(criteria), _callback)
 
+	# Retrieve data associated with the message /set/. Look at
+	# https://tools.ietf.org/html/rfc3501#section-6.4.5 for
+	# parts / item names
 	def fetch(self, set, part, callback=None):
 		if not callback:
 			callback = self.callback
