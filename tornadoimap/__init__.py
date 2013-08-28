@@ -19,6 +19,7 @@ class AsyncIMAPClient:
 		self.ioloop = ioloop or tornado.ioloop.IOLoop.current()
 		self.callback = callback
 		self.has_login = False
+		self.has_select = False
 		self.waiters = {}
 
 		self._get_socket(host, port)
@@ -94,7 +95,33 @@ class AsyncIMAPClient:
 		def _callback(data):
 			resp = data.split(bytes(" ".encode("UTF-8")))
 			if resp[1] == b"OK":
+				self.has_select = True
 				callback(0, "SELECT done.")
 			else:
 				callback(1, "SELECT failed.")
 		self._cmd("SELECT {0}".format(mailbox), _callback)
+
+	def search(self, criteria, callback=None):
+		if not callback:
+			callback = self.callback
+		if not self.has_select:
+			callback(1, "No mailbox selected!")
+			return
+		if self.has_login == False:
+			callback(1, "Not logged-in!")
+			return
+
+		def _callback(data):
+			resp = data.split(bytes(" ".encode("UTF-8")))
+			if resp[1] != b"OK":
+				callback(1, "SEARCH failed.")
+
+		def _callback_results(data):
+			data = data.split(b" ")
+			del data[0]
+			del data[0]
+			data[-1] = data[-1].replace(b"\r\n", b"")
+			callback(0, data)
+
+		self.waiters["^\* SEARCH"] = _callback_results
+		self._cmd("SEARCH {0}".format(criteria), _callback)
