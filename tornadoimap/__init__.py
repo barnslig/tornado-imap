@@ -33,11 +33,29 @@ class AsyncIMAPClient:
 		self.waiters["^{0} ".format(str(_id))] = callback
 
 	def _callback_process(self, data):
+		has_literals = False
+
+		def _call_waiter(data):
+			match = re.match("(" + ")|(".join(self.waiters.keys()) + ")", str(data, "UTF-8"))
+			if match:
+				key = list(self.waiters.keys())[match.lastindex-1]
+				self.waiters[key](data)
+
+		# literals
+		def _callback_process_append(ad, data):
+			data += ad
+			_call_waiter(data)
+
+		if b"{" in data:
+			has_literals = True
+			literal = data.split(b"{")[1]
+			literal = int(literal.split(b"}")[0])
+			self.stream.read_bytes(literal, lambda ad: _callback_process_append(ad, data))
+
+		# default stuff
 		self.stream.read_until(b"\n", self._callback_process)
-		match = re.match("(" + ")|(".join(self.waiters.keys()) + ")", str(data, "UTF-8"))
-		if match:
-			key = list(self.waiters.keys())[match.lastindex-1]
-			self.waiters[key](data)
+		if not has_literals:
+			_call_waiter(data)
 
 	def _get_socket(self, host, port):
 		s = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
@@ -125,3 +143,24 @@ class AsyncIMAPClient:
 
 		self.waiters["^\* SEARCH"] = _callback_results
 		self._cmd("SEARCH {0}".format(criteria), _callback)
+
+	def fetch(self, set, part, callback=None):
+		if not callback:
+			callback = self.callback
+		if not self.has_select:
+			callback(1, "No mailbox selected!")
+			return
+		if self.has_login == False:
+			callback(1, "Not logged-in!")
+			return
+
+		def _callback(data):
+			resp = data.split(bytes(" ".encode("UTF-8")))
+			if resp[1] != b"OK":
+				callback(1, "FETCH failed.")
+
+		def _callback_results(data):
+			callback(0, data)
+
+		self.waiters["^\* [0-9+] FETCH"] = _callback_results
+		self._cmd("FETCH {0} {1}".format(set, part), _callback)
