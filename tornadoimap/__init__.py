@@ -1,7 +1,7 @@
 # coding: utf-8
 import socket
-import tornado.ioloop
 import tornado.iostream
+import tornado.ioloop
 import time
 import ssl
 
@@ -14,14 +14,14 @@ class AsyncIMAPClient:
 	#    def callback(err, msg):
 	#        (do something)
 	#
-	def __init__(self, host, callback, port=143):
+	def __init__(self, host, callback, ioloop=None, port=143):
+		self.ioloop = ioloop or tornado.ioloop.IOLoop.current()
 		self.callback = callback
 		self.has_login = False
 		self.waiters = {}
 
 		self._get_socket(host, port)
 
-	## Helper functions ##
 	def _id(self):
 		return int(time.time())
 
@@ -38,12 +38,8 @@ class AsyncIMAPClient:
 			self.waiters[tag](b" ".join(data))
 
 	def _get_socket(self, host, port):
-		if self.has_login == True:
-			self.callback(1, "Already logged-in!")
-			return
-
-		self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
-		self.stream = tornado.iostream.IOStream(self.sock)
+		s = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
+		self.stream = tornado.iostream.IOStream(s)
 
 		self.stream.connect((host, port))
 		self.stream.read_until(b"\n", self._callback_process)
@@ -59,13 +55,14 @@ class AsyncIMAPClient:
 
 		def _callback(data):
 			resp = data.split(bytes(" ".encode("UTF-8")))
-
 			if resp[1] == b"OK":
-				self.sock = ssl_context.wrap_socket(self.sock, do_handshake_on_connect=False)
-				self.stream = tornado.iostream.SSLIOStream(self.sock)
-				self.callback(0, "STARTTLS done.")
+				self.ioloop.remove_handler(self.stream.socket.fileno())
+				s = ssl_context.wrap_socket(self.stream.socket, do_handshake_on_connect=False)
+				self.stream = tornado.iostream.SSLIOStream(s)
+				self.stream.read_until(b"\n", self._callback_process)
+				callback(0, "STARTTLS done.")
 			else:
-				self.callback(1, "STARTTLS failed.")
+				callback(1, "STARTTLS failed.")
 		self._cmd("STARTTLS", _callback)
 
 	# Identify the client
@@ -90,14 +87,13 @@ class AsyncIMAPClient:
 		if not callback:
 			callback = self.callback
 		if self.has_login == False:
-			self.callback(1, "Not logged-in!")
+			callback(1, "Not logged-in!")
 			return
 
 		def _callback(data):
 			resp = data.split(bytes(" ".encode("UTF-8")))
 			if resp[1] == b"OK":
-				pass
-
+				callback(0, "SELECT done.")
 			else:
-				self.callback(1, "SELECT failed.")
+				callback(1, "SELECT failed.")
 		self._cmd("SELECT {0}".format(mailbox), _callback)
