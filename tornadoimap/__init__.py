@@ -4,6 +4,7 @@ import tornado.iostream
 import tornado.ioloop
 import time
 import ssl
+import re
 
 class AsyncIMAPClient:
 	# Don't forget to specify callback function(s). All methods are
@@ -28,14 +29,14 @@ class AsyncIMAPClient:
 	def _cmd(self, cmd, callback):
 		_id = self._id()
 		self.stream.write(bytes("{0} {1}\n".format(_id, cmd).encode("UTF-8")))
-		self.waiters[str(_id)] = callback
+		self.waiters["^{0} ".format(str(_id))] = callback
 
 	def _callback_process(self, data):
 		self.stream.read_until(b"\n", self._callback_process)
-		data = data.split(b" ")
-		tag = str(data[0], "UTF-8")
-		if tag in self.waiters.keys():
-			self.waiters[tag](b" ".join(data))
+		match = re.match("(" + ")|(".join(self.waiters.keys()) + ")", str(data, "UTF-8"))
+		if match:
+			key = list(self.waiters.keys())[match.lastindex-1]
+			self.waiters[key](data)
 
 	def _get_socket(self, host, port):
 		s = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
